@@ -1,6 +1,12 @@
 
-const API = "http://127.0.0.1:8000";
-const WS = "ws://127.0.0.1:8000/ws/live";
+// The backend now serves this page, so use the same origin (works on any port).
+// Port 8000 is only used when the page is opened through a separate dev server.
+const DEV_SERVER_PORTS = new Set(["5500", "5173"]);
+const IS_DEV_SERVER = DEV_SERVER_PORTS.has(window.location.port);
+const API = IS_DEV_SERVER ? "http://127.0.0.1:8000" : "";
+const WS = IS_DEV_SERVER
+    ? "ws://127.0.0.1:8000/ws/live"
+    : `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/ws/live`;
 
 const $ = (id) => document.getElementById(id);
 
@@ -299,44 +305,82 @@ async function stopCapture() {
     }
 }
 
+function packetRowValues(packet) {
+    return [
+        packet.id,
+        packet.timestamp,
+        `${packet.source_ip}${packet.source_port ? ":" + packet.source_port : ""}`,
+        `${packet.destination_ip}${packet.destination_port ? ":" + packet.destination_port : ""}`,
+        packet.protocol,
+        packet.application_protocol,
+        formatBytes(packet.packet_size),
+        packet.direction
+    ].map((value) => String(value ?? "--"));
+}
+
+function createPacketRow(packet) {
+    const row = document.createElement("tr");
+    row.dataset.packetId = String(packet.id);
+
+    packetRowValues(packet).forEach((value) => {
+        const cell = document.createElement("td");
+        cell.textContent = value;
+        row.appendChild(cell);
+    });
+
+    return row;
+}
+
+function updatePacketRow(row, packet) {
+    packetRowValues(packet).forEach((value, index) => {
+        const cell = row.children[index];
+
+        if (cell && cell.textContent !== value) {
+            cell.textContent = value;
+        }
+    });
+}
+
+// Rows are updated in place instead of clearing the whole table, so the
+// dashboard no longer blinks every few seconds while packets are captured.
 async function refreshPackets() {
     try {
         const data = await apiRequest("/api/packets?limit=50");
         const table = $("packetTable");
-        table.innerHTML = "";
+        const items = data.items || [];
 
-        if (!data.items || data.items.length === 0) {
-            table.innerHTML = `
-                <tr>
-                    <td colspan="8" class="empty-state">
-                        No packet records found.
-                    </td>
-                </tr>`;
+        if (items.length === 0) {
+            if (!table.querySelector(".empty-state")) {
+                const row = document.createElement("tr");
+                const cell = document.createElement("td");
+                cell.colSpan = 8;
+                cell.className = "empty-state";
+                cell.textContent = "No packet records found.";
+                row.appendChild(cell);
+                table.replaceChildren(row);
+            }
             return;
         }
 
-        data.items.forEach((packet) => {
-            const row = document.createElement("tr");
-
-            const values = [
-                packet.id,
-                packet.timestamp,
-                `${packet.source_ip}${packet.source_port ? ":" + packet.source_port : ""}`,
-                `${packet.destination_ip}${packet.destination_port ? ":" + packet.destination_port : ""}`,
-                packet.protocol,
-                packet.application_protocol,
-                formatBytes(packet.packet_size),
-                packet.direction
-            ];
-
-            values.forEach((value) => {
-                const cell = document.createElement("td");
-                cell.textContent = String(value ?? "--");
-                row.appendChild(cell);
-            });
-
-            table.appendChild(row);
+        const existingRows = new Map();
+        table.querySelectorAll("tr[data-packet-id]").forEach((row) => {
+            existingRows.set(row.dataset.packetId, row);
         });
+
+        const fragment = document.createDocumentFragment();
+
+        items.forEach((packet) => {
+            const row = existingRows.get(String(packet.id));
+
+            if (row) {
+                updatePacketRow(row, packet);
+                fragment.appendChild(row);
+            } else {
+                fragment.appendChild(createPacketRow(packet));
+            }
+        });
+
+        table.replaceChildren(fragment);
     } catch (error) {
         setMessage(`Packet history error: ${error.message}`, true);
     }
@@ -376,7 +420,7 @@ async function scanDevices() {
 $("startButton").addEventListener("click", startCapture);
 $("stopButton").addEventListener("click", stopCapture);
 $("refreshInterfaces").addEventListener("click", loadInterfaces);
-$("refreshPackets").addEventListener("click", refreshPackets);
+$("refreshPackets").addEventListener("click", () => refreshPackets());
 $("scanDevices").addEventListener("click", scanDevices);
 
 initializeCharts();

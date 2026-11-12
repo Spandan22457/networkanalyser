@@ -1,9 +1,11 @@
 
 import asyncio
 import threading
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy import or_
 
@@ -13,6 +15,10 @@ from monitor.discovery.gateway_discovery import GatewayDiscovery
 from monitor.discovery.device_discovery import DeviceDiscovery
 from monitor.storage.database import init_database, SessionLocal
 from monitor.storage.models import PacketRecord
+
+
+BASE_DIR = Path(__file__).resolve().parents[1]
+FRONTEND_DIR = BASE_DIR / "frontend"
 
 
 app = FastAPI(
@@ -49,8 +55,8 @@ def startup():
     init_database()
 
 
-@app.get("/")
-def root():
+@app.get("/api")
+def api_root():
     return {
         "message": "Mini Network Analyzer API is running",
         "docs": "/docs"
@@ -312,3 +318,19 @@ def shutdown():
 
     if capture_manager is not None:
         capture_manager.stop()
+
+
+# Serve the dashboard from the same origin as the API.
+#
+# This is the fix for the "dashboard keeps reloading" problem: the frontend was
+# opened through VS Code Live Server, which watches the whole project folder.
+# Packet capture writes to network_monitor.db continuously, so Live Server saw a
+# file change every second and forced a full browser reload over and over.
+#
+# With this mount the backend serves the UI itself, so no file-watching dev
+# server is involved. Open http://127.0.0.1:8000/ instead of port 5500.
+app.mount(
+    "/",
+    StaticFiles(directory=FRONTEND_DIR, html=True),
+    name="frontend"
+)
