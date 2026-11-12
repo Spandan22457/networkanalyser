@@ -1,0 +1,177 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NetScope | Network Analyzer</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <aside class="sidebar">
+        <div class="brand">
+            <div class="brand-icon">N</div>
+            <div>
+                <h2>NetScope</h2>
+                <span>NETWORK ANALYZER</span>
+            </div>
+        </div>
+
+        <nav>
+            <a class="active" href="#overview">Overview</a>
+            <a href="#traffic">Traffic Analysis</a>
+            <a href="#packets">Packet Monitor</a>
+            <a href="#network">Network</a>
+        </nav>
+
+        <div class="sidebar-bottom">
+            <span class="status-dot" id="connectionDot"></span>
+            <span id="connectionText">Connecting to API...</span>
+        </div>
+    </aside>
+
+    <main class="main-content">
+        <header class="topbar">
+            <div>
+                <h1>Network Overview</h1>
+                <p>Real-time network traffic monitoring</p>
+            </div>
+            <div class="header-status">
+                <span class="status-dot" id="captureDot"></span>
+                <span id="captureText">Capture stopped</span>
+            </div>
+        </header>
+
+        <section class="control-panel">
+            <div class="control-info">
+                <h3>Packet Capture</h3>
+                <p>Select a network adapter to monitor its traffic.</p>
+            </div>
+            <div class="controls">
+                <select id="interfaceSelect">
+                    <option value="">Loading interfaces...</option>
+                </select>
+                <button id="refreshInterfaces" class="secondary-btn">Refresh</button>
+                <button id="startButton" class="start-btn">Start Capture</button>
+                <button id="stopButton" class="stop-btn" disabled>Stop</button>
+            </div>
+            <p id="captureMessage" class="message"></p>
+        </section>
+
+        <section id="overview" class="stats-grid">
+            <article class="stat-card">
+                <span>Total Packets</span>
+                <h2 id="totalPackets">--</h2>
+                <small>Captured packets</small>
+            </article>
+            <article class="stat-card">
+                <span>Total Traffic</span>
+                <h2 id="totalBytes">--</h2>
+                <small>Captured bytes</small>
+            </article>
+            <article class="stat-card">
+                <span>Upload Rate</span>
+                <h2 id="uploadRate">--</h2>
+                <small>Outgoing traffic</small>
+            </article>
+            <article class="stat-card">
+                <span>Download Rate</span>
+                <h2 id="downloadRate">--</h2>
+                <small>Incoming traffic</small>
+            </article>
+            <article class="stat-card">
+                <span>Unique Source IPs</span>
+                <h2 id="sourceIPs">--</h2>
+                <small>Observed sources</small>
+            </article>
+            <article class="stat-card">
+                <span>Unique Destination IPs</span>
+                <h2 id="destinationIPs">--</h2>
+                <small>Observed destinations</small>
+            </article>
+        </section>
+
+        <section id="traffic" class="charts-grid">
+            <article class="panel">
+                <div class="panel-heading">
+                    <div>
+                        <h3>Traffic Throughput</h3>
+                        <p>Upload and download rates</p>
+                    </div>
+                    <span class="unit-label">Bytes / second</span>
+                </div>
+                <div class="chart-container">
+                    <canvas id="trafficChart"></canvas>
+                </div>
+            </article>
+
+            <article class="panel">
+                <div class="panel-heading">
+                    <div>
+                        <h3>Network Protocols</h3>
+                        <p>Captured packet distribution</p>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="protocolChart"></canvas>
+                </div>
+            </article>
+        </section>
+
+        <section id="packets" class="panel packet-panel">
+            <div class="panel-heading">
+                <div>
+                    <h3>Recent Packets</h3>
+                    <p>Latest records stored in the database</p>
+                </div>
+                <button id="refreshPackets" class="secondary-btn">Refresh</button>
+            </div>
+
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Timestamp</th>
+                            <th>Source</th>
+                            <th>Destination</th>
+                            <th>Protocol</th>
+                            <th>Application</th>
+                            <th>Size</th>
+                            <th>Direction</th>
+                        </tr>
+                    </thead>
+                    <tbody id="packetTable">
+                        <tr>
+                            <td colspan="8" class="empty-state">
+                                No packet records loaded.
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section id="network" class="panel network-panel">
+            <div class="panel-heading">
+                <div>
+                    <h3>Network Information</h3>
+                    <p>Default IPv4 gateway and local subnet</p>
+                </div>
+                <button id="scanDevices" class="secondary-btn">Scan Devices</button>
+            </div>
+            <div id="gatewayInfo" class="network-info">
+                Loading network information...
+            </div>
+            <div id="deviceInfo" class="network-info"></div>
+        </section>
+
+        <footer>
+            NetScope · Local network monitoring · Packet payloads are not stored
+        </footer>
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>
