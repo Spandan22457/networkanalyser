@@ -7,13 +7,13 @@ from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnec
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from sqlalchemy import or_
+from sqlalchemy import or_, text
 
 from monitor.capture.capture_manager import CaptureManager
 from monitor.discovery.interface_discovery import InterfaceDiscovery
 from monitor.discovery.gateway_discovery import GatewayDiscovery
 from monitor.discovery.device_discovery import DeviceDiscovery
-from monitor.storage.database import init_database, SessionLocal
+from monitor.storage.database import engine, init_database, SessionLocal
 from monitor.storage.models import PacketRecord
 
 
@@ -65,7 +65,14 @@ def api_root():
 
 @app.get("/api/health")
 def health():
-    return {"status": "healthy"}
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+        database = "connected"
+    except Exception:
+        database = "unavailable"
+
+    return {"status": "healthy", "database": database}
 
 
 @app.get("/api/interfaces")

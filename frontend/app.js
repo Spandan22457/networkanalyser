@@ -42,7 +42,27 @@ function setMessage(message, isError = false) {
     $("captureMessage").style.color = isError ? "#f87171" : "#86efac";
 }
 
+// Chart.js is loaded from a local file, but chart creation must never stop the
+// API calls below from running. A missing/broken chart library used to throw
+// here and silently skip loadInterfaces(), refreshPackets() and the WebSocket.
 function initializeCharts() {
+    if (typeof Chart === "undefined") {
+        console.warn(
+            "Chart.js is unavailable; charts are disabled but live API data still loads."
+        );
+        return;
+    }
+
+    try {
+        createCharts();
+    } catch (error) {
+        console.error("Chart initialisation failed:", error);
+        trafficChart = null;
+        protocolChart = null;
+    }
+}
+
+function createCharts() {
     trafficChart = new Chart($("trafficChart"), {
         type: "line",
         data: {
@@ -195,9 +215,12 @@ function updateStatistics(stats) {
         stats.unique_destination_ips ?? 0;
 
     const protocols = stats.protocol_counts || {};
-    protocolChart.data.labels = Object.keys(protocols);
-    protocolChart.data.datasets[0].data = Object.values(protocols);
-    protocolChart.update("none");
+
+    if (protocolChart) {
+        protocolChart.data.labels = Object.keys(protocols);
+        protocolChart.data.datasets[0].data = Object.values(protocols);
+        protocolChart.update("none");
+    }
 
     const now = new Date().toLocaleTimeString();
 
@@ -211,7 +234,9 @@ function updateStatistics(stats) {
         downloadHistory.shift();
     }
 
-    trafficChart.update("none");
+    if (trafficChart) {
+        trafficChart.update("none");
+    }
 }
 
 function updateCaptureStatus(running) {
@@ -238,6 +263,7 @@ function connectWebSocket() {
     socket.onopen = () => {
         $("connectionDot").classList.add("online");
         $("connectionText").textContent = "API connected";
+        checkBackend();
     };
 
     socket.onmessage = (event) => {
@@ -417,16 +443,77 @@ async function scanDevices() {
     }
 }
 
+// HTTP fallback so the cards still update if the WebSocket is blocked.
+async function refreshStatistics() {
+    try {
+        const data = await apiRequest("/api/statistics");
+        const stats = data && data.statistics !== undefined
+            ? data.statistics
+            : data;
+
+        if (stats && stats.total_packets !== undefined) {
+            updateStatistics(stats);
+        }
+    } catch (error) {
+        // The WebSocket is the primary channel; ignore transient HTTP errors.
+    }
+}
+
+async function refreshCaptureStatus() {
+    try {
+        const status = await apiRequest("/api/capture/status");
+        updateCaptureStatus(Boolean(status.running));
+    } catch (error) {
+        // Reported by checkBackend().
+    }
+}
+
+// Confirms that the API and the SQLite database are reachable and shows the
+// result in the sidebar instead of silently staying on "Connecting...".
+async function checkBackend() {
+    try {
+        const health = await apiRequest("/api/health");
+
+        $("connectionDot").classList.add("online");
+        $("connectionText").textContent = health.database === "connected"
+            ? "API + database connected"
+            : "API connected (database unavailable)";
+
+        return true;
+    } catch (error) {
+        $("connectionDot").classList.remove("online");
+        $("connectionText").textContent = "API unreachable";
+        return false;
+    }
+}
+
 $("startButton").addEventListener("click", startCapture);
 $("stopButton").addEventListener("click", stopCapture);
 $("refreshInterfaces").addEventListener("click", loadInterfaces);
 $("refreshPackets").addEventListener("click", () => refreshPackets());
 $("scanDevices").addEventListener("click", scanDevices);
 
+if (window.location.protocol === "file:") {
+    setMessage(
+        "This page must be served by the backend. Run uvicorn and open " +
+        "http://127.0.0.1:8000/ instead of double-clicking index.html.",
+        true
+    );
+}
+
 initializeCharts();
+checkBackend();
 loadInterfaces();
 loadGateway();
 refreshPackets();
+refreshCaptureStatus();
+refreshStatistics();
 connectWebSocket();
 
 setInterval(refreshPackets, 3000);
+setInterval(() => {
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+        refreshStatistics();
+        refreshCaptureStatus();
+    }
+}, 2000);

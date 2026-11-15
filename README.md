@@ -69,6 +69,18 @@ Packet capture needs [Npcap](https://npcap.com/#download) installed with the def
 | GET | `/api/packets` | Stored packet metadata |
 | WS | `/ws/live` | Live statistics push (1 per second) |
 
+## Troubleshooting
+
+- **The page shows `--` and the browser console has no `/api` requests.**
+  Start the backend and open `http://127.0.0.1:8000/`. Chart.js is bundled in
+  `frontend/vendor/chart.umd.min.js`, so a blocked CDN can no longer stop the
+  API calls from running.
+- **Sidebar says "API unreachable".** The backend is not running, or the page is
+  open on a different port (for example an old Live Server tab).
+- **Sidebar says "API connected (database unavailable)".** SQLite could not be
+  opened. Check that the project folder is writable and that
+  `network_monitor.db` is not locked by another process.
+
 ## Security
 
 - The server binds to `127.0.0.1` only.
