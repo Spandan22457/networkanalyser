@@ -11,6 +11,9 @@ scapy==2.8.0
 psutil==7.2.2
 websockets==17.4
 
+# External database driver. Optional: SQLite needs nothing extra.
+psycopg[binary]==3.3.9
+
 # Testing
 pytest==9.2.0
 httpx==0.28.1

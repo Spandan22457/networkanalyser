@@ -16,7 +16,11 @@ from monitor.core.timeutils import as_utc
 
 
 def _utc(value: datetime) -> datetime:
-    """SQLite returns naive datetimes; always expose them as UTC."""
+    """Normalise a stored datetime to aware UTC.
+
+    SQLite hands back naive values; PostgreSQL returns aware ones.  Either way
+    the API must emit a UTC instant with an offset.
+    """
 
     return as_utc(value)
 
@@ -202,6 +206,8 @@ class HealthOut(BaseModel):
     status: str
     database: str
     detail: str | None = None
+    # "sqlite" or a server backend such as "postgresql".
+    backend: str = "sqlite"
 
 
 class LiveUpdate(BaseModel):

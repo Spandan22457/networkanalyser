@@ -47,6 +47,7 @@ from api.schemas import (
     TopTalker,
 )
 from monitor.capture.capture_manager import CaptureManager
+from monitor.core.config import settings
 from monitor.core.timeutils import from_iso, utcnow
 from monitor.discovery.device_discovery import DeviceDiscovery
 from monitor.discovery.gateway_discovery import GatewayDiscovery
@@ -233,6 +234,7 @@ def api_root():
         "message": "Mini Network Analyzer API is running",
         "docs": "/docs",
         "version": "2.0.0",
+        "database": settings.database_backend,
     }
 
 
@@ -250,12 +252,14 @@ def health():
             status="degraded",
             database="unavailable",
             detail=str(exc),
+            backend=settings.database_backend,
         )
 
     return HealthOut(
         status="healthy",
         database="connected",
         detail=f"{int(stored)} packets stored",
+        backend=settings.database_backend,
     )
 
 

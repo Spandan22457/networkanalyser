@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from sqlalchemy import inspect, text
 
 from monitor.core.config import settings
@@ -15,6 +16,17 @@ from monitor.storage.models import (
 )
 
 
+SQLITE = settings.is_sqlite
+
+FLOW_KEY = (
+    "source_ip",
+    "destination_ip",
+    "source_port",
+    "destination_port",
+    "protocol",
+)
+
+
 def test_database_path_is_absolute_and_isolated():
     assert isinstance(settings.database_path, Path)
     assert settings.database_path.is_absolute()
@@ -23,8 +35,15 @@ def test_database_path_is_absolute_and_isolated():
 
 
 def test_database_url_points_at_configured_file():
-    assert settings.database_url.startswith("sqlite:///")
-    assert settings.database_path.as_posix() in settings.database_url
+    assert SQLITE
+    assert settings.database_url is None
+    assert settings.database_backend == "sqlite"
+    assert settings.sqlalchemy_url.startswith("sqlite:///")
+    assert settings.database_path.as_posix() in settings.sqlalchemy_url
+
+
+def test_engine_dialect_matches_the_configured_backend():
+    assert engine.dialect.name == settings.database_backend
 
 
 def test_init_database_is_idempotent():
@@ -68,15 +87,15 @@ def test_packet_table_has_metadata_columns_only():
 
 
 def test_connection_flow_unique_constraint_exists():
-    with engine.connect() as connection:
-        indexes = connection.exec_driver_sql(
-            "PRAGMA index_list('connections')"
-        ).all()
+    """Works on both backends, unlike the SQLite-only PRAGMA version."""
 
-    # SQLite implements the UNIQUE constraint as an auto-index.
-    assert any(row[2] == 1 for row in indexes)
+    constraints = inspect(engine).get_unique_constraints("connections")
+    keys = {tuple(sorted(constraint["column_names"])) for constraint in constraints}
+
+    assert tuple(sorted(FLOW_KEY)) in keys
 
 
+@pytest.mark.skipif(not SQLITE, reason="SQLite pragmas only")
 def test_sqlite_pragmas_are_applied():
     with engine.connect() as connection:
         busy_timeout = connection.execute(

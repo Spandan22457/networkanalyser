@@ -22,7 +22,7 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-config.set_main_option("sqlalchemy.url", settings.database_url)
+config.set_main_option("sqlalchemy.url", settings.sqlalchemy_url)
 
 import_models()
 target_metadata = Base.metadata
@@ -31,8 +31,10 @@ target_metadata = Base.metadata
 def _configure_kwargs() -> dict:
     return {
         "target_metadata": target_metadata,
-        # SQLite cannot ALTER most columns; batch mode rebuilds the table.
-        "render_as_batch": True,
+        # SQLite cannot ALTER most columns, so migrations rebuild the table
+        # instead.  A server database supports real ALTERs; batch mode would
+        # only make the emitted SQL harder to read.
+        "render_as_batch": settings.is_sqlite,
         "compare_type": True,
         "compare_server_default": True,
     }
@@ -40,7 +42,7 @@ def _configure_kwargs() -> dict:
 
 def run_migrations_offline() -> None:
     context.configure(
-        url=settings.database_url,
+        url=settings.sqlalchemy_url,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         **_configure_kwargs(),

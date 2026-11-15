@@ -17,6 +17,9 @@ TEST_ROOT = Path(tempfile.mkdtemp(prefix="netscope-tests-")).resolve()
 
 os.environ["NETSCOPE_DATABASE_PATH"] = str(TEST_ROOT / "test.db")
 os.environ["NETSCOPE_ENABLE_WAL"] = "0"
+# A developer's .env may point NETSCOPE_DATABASE_URL at a real PostgreSQL
+# server.  The suite must never touch it, so the override is cleared here.
+os.environ["NETSCOPE_DATABASE_URL"] = ""
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -35,6 +38,7 @@ from tests.helpers import packet_row  # noqa: E402,F401
 @pytest.fixture(scope="session", autouse=True)
 def _schema():
     assert settings.database_path == TEST_ROOT / "test.db"
+    assert settings.is_sqlite, "tests must never run against a server database"
     init_database()
     yield
 

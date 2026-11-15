@@ -1,9 +1,13 @@
 """
 Repository for tracked connections (flows).
 
-Uses SQLite's ``INSERT ... ON CONFLICT DO UPDATE`` so a batch of flows is
-written in one statement and counters are incremented atomically, instead of
-select-then-update per packet.
+Uses ``INSERT ... ON CONFLICT DO UPDATE`` so a batch of flows is written in one
+statement and counters are incremented atomically, instead of select-then-update
+per packet.  Both supported backends implement the same clause - PostgreSQL and
+SQLite - so only the insert constructor differs.
+
+Scalar ``min``/``max`` also differ: SQLite accepts two arguments to
+``min(a, b)``/``max(a, b)``, while PostgreSQL needs ``least()``/``greatest()``.
 """
 
 from __future__ import annotations
@@ -13,7 +17,9 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import func, or_, select
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from .models import ConnectionRecord
@@ -26,6 +32,38 @@ FLOW_KEY = (
     "destination_port",
     "protocol",
 )
+
+
+def _insert_for(dialect_name: str):
+    """Return the dialect-specific ``insert`` constructor."""
+
+    if dialect_name == "postgresql":
+        return postgresql.insert
+
+    if dialect_name == "sqlite":
+        return sqlite_insert
+
+    raise RuntimeError(
+        f"Flow upserts are not implemented for the '{dialect_name}' dialect."
+    )
+
+
+def _scalar_min(dialect_name: str, left, right):
+    """Earlier of two timestamps, per dialect."""
+
+    if dialect_name == "postgresql":
+        return func.least(left, right)
+
+    return func.min(left, right)
+
+
+def _scalar_max(dialect_name: str, left, right):
+    """Later of two timestamps, per dialect."""
+
+    if dialect_name == "postgresql":
+        return func.greatest(left, right)
+
+    return func.max(left, right)
 
 SORT_COLUMNS: dict[str, Any] = {
     "id": ConnectionRecord.id,
@@ -86,16 +124,21 @@ class ConnectionRepository:
         if not rows:
             return 0
 
-        statement = sqlite_insert(ConnectionRecord).values(rows)
+        index_elements = list(FLOW_KEY)
+        dialect_name = self.db.get_bind().dialect.name
+
+        statement = _insert_for(dialect_name)(ConnectionRecord).values(rows)
 
         statement = statement.on_conflict_do_update(
-            index_elements=list(FLOW_KEY),
+            index_elements=index_elements,
             set_={
-                "first_seen": func.min(
+                "first_seen": _scalar_min(
+                    dialect_name,
                     ConnectionRecord.first_seen,
                     statement.excluded.first_seen,
                 ),
-                "last_seen": func.max(
+                "last_seen": _scalar_max(
+                    dialect_name,
                     ConnectionRecord.last_seen,
                     statement.excluded.last_seen,
                 ),

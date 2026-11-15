@@ -85,13 +85,20 @@ Packet capture needs [Npcap](https://npcap.com/#download) installed with the def
 
 ## Database and migrations
 
-The SQLite file location is resolved once, from an absolute path, in
-`monitor/core/config.py`. Override it with the `NETSCOPE_DATABASE_PATH` environment
-variable (or a `.env` file); every process and every Alembic command then uses the
-same file regardless of the current working directory.
+Two backends are supported and both are configured in one place,
+`monitor/core/config.py`:
+
+| Backend | How to select it | Notes |
+|---|---|---|
+| SQLite (default) | nothing to do | one file at an absolute path, no server |
+| PostgreSQL | set `NETSCOPE_DATABASE_URL` | needs the `psycopg` driver and a one-time role/database |
+
+Every process and every Alembic command resolves the same URL, so the working
+directory never changes which database is used. For SQLite the file location can be
+overridden with `NETSCOPE_DATABASE_PATH` (or a `.env` file).
 
 ```powershell
-# Apply schema changes to an existing database
+# Apply schema changes to the configured database
 python -m alembic upgrade head
 
 # Confirm the models and the database agree
@@ -112,6 +119,60 @@ snapshots), `connections` (tracked 5-tuples). The migration adds columns with
 the same additive column changes at startup, so a stale database remains usable
 without migrations; Alembic is still the versioned path.
 
+### External database (PostgreSQL)
+
+SQLite is the default and needs no setup. To store everything in PostgreSQL instead,
+set one variable - `NETSCOPE_DATABASE_URL` - and the engine, sessions, repositories
+and Alembic all switch over. There is no code path that still assumes SQLite.
+
+**1. Create a role and database once** (run as the `postgres` superuser):
+
+```powershell
+$psql = "C:\Program Files\PostgreSQL\18\bin\psql.exe"
+& $psql -U postgres -h 127.0.0.1 -c "CREATE ROLE netscope LOGIN PASSWORD 'choose-a-password';"
+& $psql -U postgres -h 127.0.0.1 -c "CREATE DATABASE netscope OWNER netscope;"
+```
+
+**2. Point the app at it** - create `.env` in the project root (it is git-ignored):
+
+```ini
+NETSCOPE_DATABASE_URL=postgresql+psycopg://netscope:choose-a-password@127.0.0.1:5432/netscope
+```
+
+`postgres://` and `postgresql://` are accepted too; they are rewritten to the
+installed `psycopg` driver. A plain path or a URL without a scheme is rejected at
+startup rather than failing later.
+
+**3. Create the tables:**
+
+```powershell
+python -m alembic upgrade head
+python -m alembic check
+```
+
+**4. Start the app as usual** and confirm the backend:
+
+```powershell
+python run.py
+# http://127.0.0.1:8000/api/health  ->  {"backend":"postgresql", ...}
+```
+
+`/api` and `/api/health` report which backend is in use, and `settings.safe_database_url`
+masks the password when the URL is displayed.
+
+Notes:
+
+- The SQLite file is *not* migrated automatically. A new PostgreSQL database starts
+  empty; keep `network_monitor.db` as an archive or copy rows across with a one-off
+  script if you need the history.
+- Connection pooling is configured by `NETSCOPE_DB_POOL_SIZE` (5),
+  `NETSCOPE_DB_MAX_OVERFLOW` (5) and `NETSCOPE_DB_POOL_RECYCLE` (1800 s).
+- Flow upserts use `INSERT ... ON CONFLICT DO UPDATE` on both backends; only the
+  dialect-specific insert constructor and `least()`/`greatest()` differ.
+- `.env` is read from the project root, so the command must run from there.
+- Tests always use SQLite: `tests/conftest.py` clears `NETSCOPE_DATABASE_URL`, so a
+  configured server is never touched by `python -m pytest`.
+
 ## Capture and persistence pipeline
 
 ```
@@ -120,7 +181,7 @@ Scapy sniff
   -> in-memory statistics engine
   -> bounded queue
   -> database writer thread (batches + connection upserts)
-  -> SQLite
+  -> SQLite (default) or PostgreSQL
 ```
 
 Two background threads run beside the capture thread: one drains the queue in bounded
@@ -180,11 +241,12 @@ the 1 Hz fan-out does not become a full table scan per client.
 python -m pytest
 ```
 
-86 tests cover the schema, all three repositories, flow aggregation, the writer /
+97 tests cover the schema, all three repositories, flow aggregation, the writer /
 retry / dead-letter path, the statistics read model, every REST endpoint, and the
 WebSocket contract. `tests/conftest.py` redirects `NETSCOPE_DATABASE_PATH` to a
-throwaway directory before importing project modules, so the real
-`network_monitor.db` is never touched. Only synthetic packets are used.
+throwaway directory and clears `NETSCOPE_DATABASE_URL` before importing project
+modules, so neither the real `network_monitor.db` nor a configured PostgreSQL server
+is ever touched. Only synthetic packets are used.
 
 ## Troubleshooting
 
@@ -199,6 +261,16 @@ throwaway directory before importing project modules, so the real
   instead of plain uvicorn (see "Run the app").
 - **`database is locked`.** Close other tools holding `network_monitor.db`. WAL mode
   and a 5 second busy timeout are configured, so short overlaps are tolerated.
+- **`password authentication failed for user "netscope"`.** The password in
+  `.env` does not match the role. Reset it with
+  `ALTER ROLE netscope PASSWORD 'new-password';` as the `postgres` superuser.
+- **`connection refused` on port 5432.** Check the service:
+  `Get-Service postgresql*`, then `Start-Service postgresql-x64-18`.
+- **`relation "packets" does not exist`.** The server database was never migrated:
+  run `python -m alembic upgrade head`.
+- **Data "disappeared" after switching backend.** The SQLite file and PostgreSQL are
+  separate stores; switching backends shows whichever one is configured. Set or
+  remove `NETSCOPE_DATABASE_URL` in `.env` and restart.
 
 ## Security
 
