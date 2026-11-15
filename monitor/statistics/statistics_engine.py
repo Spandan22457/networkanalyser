@@ -30,6 +30,11 @@ class StatisticsEngine:
         self.source_ips = set()
         self.destination_ips = set()
 
+        # Per-host traffic for the "top talkers" panel.
+        self.source_packets = Counter()
+        self.source_bytes = Counter()
+        self.destination_bytes = Counter()
+
         # Rolling records: (monotonic timestamp, packet size, direction)
         self._recent_packets = deque()
 
@@ -76,9 +81,12 @@ class StatisticsEngine:
 
             if source_ip:
                 self.source_ips.add(source_ip)
+                self.source_packets[source_ip] += 1
+                self.source_bytes[source_ip] += packet_size
 
             if destination_ip:
                 self.destination_ips.add(destination_ip)
+                self.destination_bytes[destination_ip] += packet_size
 
             self._recent_packets.append(
                 (now, packet_size, direction)
@@ -181,4 +189,26 @@ class StatisticsEngine:
             self.source_ips.clear()
             self.destination_ips.clear()
 
+            self.source_packets.clear()
+            self.source_bytes.clear()
+            self.destination_bytes.clear()
+
             self._recent_packets.clear()
+
+    def top_talkers(self, limit=10):
+        """Hosts ordered by bytes sent, from the current session."""
+
+        limit = max(1, min(int(limit), 100))
+
+        with self._lock:
+            items = [
+                {
+                    "ip": ip,
+                    "packets": self.source_packets[ip],
+                    "bytes": size
+                }
+                for ip, size in self.source_bytes.most_common(limit)
+            ]
+
+        return items
+

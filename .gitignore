@@ -21,5 +21,10 @@ venv/
 *.sqlite
 *.sqlite3
 
+# Local server logs, pid files and dead-letter output
+server*.log
+server.pid
+storage_failures.jsonl
+
 # Jupyter
 .ipynb_checkpoints/

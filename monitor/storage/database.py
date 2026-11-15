@@ -80,16 +80,52 @@ def import_models() -> None:
     from monitor.storage import models  # noqa: F401
 
 
+# Columns added after the original ``packets`` table shipped.  ``create_all``
+# cannot add columns to an existing table, so they are applied additively here
+# as well.  Alembic remains the documented upgrade path; this keeps a stale
+# database usable when the app is started without running migrations.
+PACKET_COMPAT_COLUMNS = (
+    ("source_mac", "VARCHAR(17)"),
+    ("destination_mac", "VARCHAR(17)"),
+    ("interface", "VARCHAR(255)"),
+)
+
+
+def _ensure_packet_columns() -> None:
+    with engine.begin() as connection:
+        existing = {
+            row[1]
+            for row in connection.exec_driver_sql(
+                "PRAGMA table_info(packets)"
+            )
+        }
+
+        if not existing:
+            return
+
+        for name, type_ in PACKET_COMPAT_COLUMNS:
+            if name not in existing:
+                connection.exec_driver_sql(
+                    f"ALTER TABLE packets ADD COLUMN {name} {type_}"
+                )
+
+        connection.exec_driver_sql(
+            "CREATE INDEX IF NOT EXISTS ix_packets_interface "
+            "ON packets (interface)"
+        )
+
+
 def init_database() -> None:
     """
-    Create any missing tables and indexes.
+    Create missing tables/indexes and add missing nullable columns.
 
-    Idempotent.  This does **not** alter existing tables; schema changes to a
-    populated database are applied with Alembic (``alembic upgrade head``).
+    Idempotent.  Never rewrites existing rows; a populated database keeps its
+    data.  For versioned schema changes use ``alembic upgrade head``.
     """
 
     import_models()
     Base.metadata.create_all(bind=engine)
+    _ensure_packet_columns()
 
 
 def create_session() -> Session:

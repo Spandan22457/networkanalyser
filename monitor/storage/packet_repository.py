@@ -302,6 +302,50 @@ class PacketRepository:
 
         return {str(name): int(count) for name, count in rows}
 
+    def get_protocol_totals(self) -> list[dict[str, Any]]:
+        """Transport protocol packet and byte totals."""
+
+        rows = self.db.execute(
+            select(
+                PacketRecord.protocol,
+                func.count(PacketRecord.id),
+                func.coalesce(func.sum(PacketRecord.packet_size), 0),
+            )
+            .group_by(PacketRecord.protocol)
+            .order_by(func.count(PacketRecord.id).desc())
+        ).all()
+
+        return [
+            {
+                "protocol": str(protocol),
+                "packets": int(packets),
+                "bytes": int(size),
+            }
+            for protocol, packets, size in rows
+        ]
+
+    def get_application_protocol_totals(self) -> list[dict[str, Any]]:
+        """Application protocol packet and byte totals."""
+
+        rows = self.db.execute(
+            select(
+                PacketRecord.application_protocol,
+                func.count(PacketRecord.id),
+                func.coalesce(func.sum(PacketRecord.packet_size), 0),
+            )
+            .group_by(PacketRecord.application_protocol)
+            .order_by(func.count(PacketRecord.id).desc())
+        ).all()
+
+        return [
+            {
+                "protocol": str(protocol),
+                "packets": int(packets),
+                "bytes": int(size),
+            }
+            for protocol, packets, size in rows
+        ]
+
     def get_top_talkers(self, limit: int = 10) -> list[dict[str, Any]]:
         """Hosts ordered by bytes sent (source side)."""
 

@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -7,7 +6,12 @@
     <title>NetScope | Network Analyzer</title>
     <link rel="stylesheet" href="style.css">
     <!-- Bundled locally so the dashboard also works without internet access. -->
-    <script src="vendor/chart.umd.min.js"></script>
+    <script src="vendor/chart.umd.min.js" defer></script>
+    <script src="js/config.js" defer></script>
+    <script src="js/api.js" defer></script>
+    <script src="js/ui.js" defer></script>
+    <script src="js/charts.js" defer></script>
+    <script src="js/app.js" defer></script>
 </head>
 <body>
     <aside class="sidebar">
@@ -19,160 +23,506 @@
             </div>
         </div>
 
-        <nav>
-            <a class="active" href="#overview">Overview</a>
-            <a href="#traffic">Traffic Analysis</a>
-            <a href="#packets">Packet Monitor</a>
-            <a href="#network">Network</a>
+        <nav id="mainNav">
+            <a class="active" href="#overview" data-page="overview">Overview</a>
+            <a href="#traffic" data-page="traffic">Traffic</a>
+            <a href="#packets" data-page="packets">Packet Explorer</a>
+            <a href="#connections" data-page="connections">Connections</a>
+            <a href="#protocols" data-page="protocols">Protocols</a>
+            <a href="#interfaces" data-page="interfaces">Interfaces</a>
+            <a href="#history" data-page="history">History</a>
         </nav>
 
         <div class="sidebar-bottom">
             <span class="status-dot" id="connectionDot"></span>
-            <span id="connectionText">Connecting to API...</span>
+            <span id="connectionText">Connecting…</span>
         </div>
+        <div class="sidebar-meta" id="databaseText">Database: checking…</div>
     </aside>
 
     <main class="main-content">
         <header class="topbar">
             <div>
-                <h1>Network Overview</h1>
-                <p>Real-time network traffic monitoring</p>
+                <h1 id="pageTitle">Network Overview</h1>
+                <p id="pageSubtitle">Live traffic from the FastAPI backend</p>
             </div>
-            <div class="header-status">
-                <span class="status-dot" id="captureDot"></span>
-                <span id="captureText">Capture stopped</span>
+
+            <div class="capture-controls">
+                <label class="field">
+                    <span>Interface</span>
+                    <select id="interfaceSelect" aria-label="Capture interface">
+                        <option value="">Loading interfaces…</option>
+                    </select>
+                </label>
+                <button id="startButton" class="start-btn" type="button">Start capture</button>
+                <button id="stopButton" class="stop-btn" type="button">Stop</button>
+                <span id="captureState" class="pill">Loading…</span>
             </div>
         </header>
 
-        <section class="control-panel">
-            <div class="control-info">
-                <h3>Packet Capture</h3>
-                <p>Select a network adapter to monitor its traffic.</p>
-            </div>
-            <div class="controls">
-                <select id="interfaceSelect">
-                    <option value="">Loading interfaces...</option>
-                </select>
-                <button id="refreshInterfaces" class="secondary-btn">Refresh</button>
-                <button id="startButton" class="start-btn">Start Capture</button>
-                <button id="stopButton" class="stop-btn" disabled>Stop</button>
-            </div>
-            <p id="captureMessage" class="message"></p>
-        </section>
+        <div id="globalError" class="banner error" role="alert" hidden></div>
+        <div id="fileWarning" class="banner warning" role="status" hidden>
+            This page was opened directly from disk. Start the backend and open
+            <strong>http://127.0.0.1:8000/</strong> so the dashboard can reach the API.
+        </div>
 
-        <section id="overview" class="stats-grid">
-            <article class="stat-card">
-                <span>Total Packets</span>
-                <h2 id="totalPackets">--</h2>
-                <small>Captured packets</small>
-            </article>
-            <article class="stat-card">
-                <span>Total Traffic</span>
-                <h2 id="totalBytes">--</h2>
-                <small>Captured bytes</small>
-            </article>
-            <article class="stat-card">
-                <span>Upload Rate</span>
-                <h2 id="uploadRate">--</h2>
-                <small>Outgoing traffic</small>
-            </article>
-            <article class="stat-card">
-                <span>Download Rate</span>
-                <h2 id="downloadRate">--</h2>
-                <small>Incoming traffic</small>
-            </article>
-            <article class="stat-card">
-                <span>Unique Source IPs</span>
-                <h2 id="sourceIPs">--</h2>
-                <small>Observed sources</small>
-            </article>
-            <article class="stat-card">
-                <span>Unique Destination IPs</span>
-                <h2 id="destinationIPs">--</h2>
-                <small>Observed destinations</small>
-            </article>
-        </section>
+        <!-- ============================ OVERVIEW ============================ -->
+        <section class="page active" id="page-overview">
+            <div class="stats-grid">
+                <article class="stat-card">
+                    <span>Total Packets</span>
+                    <h2 id="statPackets">--</h2>
+                    <small id="statPacketsMeta">Waiting for data</small>
+                </article>
+                <article class="stat-card">
+                    <span>Total Data</span>
+                    <h2 id="statBytes">--</h2>
+                    <small id="statBytesMeta">Stored in SQLite</small>
+                </article>
+                <article class="stat-card">
+                    <span>Upload Rate</span>
+                    <h2 id="statUpload">--</h2>
+                    <small id="statUploadMeta">Outgoing</small>
+                </article>
+                <article class="stat-card">
+                    <span>Download Rate</span>
+                    <h2 id="statDownload">--</h2>
+                    <small id="statDownloadMeta">Incoming</small>
+                </article>
+                <article class="stat-card">
+                    <span>Packets / Second</span>
+                    <h2 id="statPps">--</h2>
+                    <small id="statPpsMeta">Rolling window</small>
+                </article>
+                <article class="stat-card">
+                    <span>Tracked Connections</span>
+                    <h2 id="statConnections">--</h2>
+                    <small id="statConnectionsMeta">Flows in SQLite</small>
+                </article>
+            </div>
 
-        <section id="traffic" class="charts-grid">
-            <article class="panel">
+            <div class="charts-grid">
+                <section class="panel">
+                    <div class="panel-heading">
+                        <div>
+                            <h3>Live Throughput</h3>
+                            <p class="unit-label">Bytes per second</p>
+                        </div>
+                        <span id="trafficSource" class="badge">--</span>
+                    </div>
+                    <div class="chart-container" id="trafficChartWrap">
+                        <canvas id="trafficChart"></canvas>
+                    </div>
+                    <p class="empty-state" id="trafficEmpty" hidden>
+                        No live samples yet. Start a capture to see throughput.
+                    </p>
+                </section>
+
+                <section class="panel">
+                    <div class="panel-heading">
+                        <div>
+                            <h3>Protocol Distribution</h3>
+                            <p class="unit-label">Transport protocols</p>
+                        </div>
+                    </div>
+                    <div class="chart-container" id="protocolChartWrap">
+                        <canvas id="protocolChart"></canvas>
+                    </div>
+                    <p class="empty-state" id="protocolEmpty" hidden>
+                        No protocol data available.
+                    </p>
+                </section>
+            </div>
+
+            <div class="charts-grid">
+                <section class="panel">
+                    <div class="panel-heading">
+                        <h3>Top Talkers</h3>
+                    </div>
+                    <div class="table-wrapper">
+                        <table>
+                            <thead>
+                                <tr><th>Host</th><th>Packets</th><th>Bytes</th></tr>
+                            </thead>
+                            <tbody id="topTalkersBody"></tbody>
+                        </table>
+                    </div>
+                    <p class="empty-state" id="talkersEmpty" hidden>No traffic recorded yet.</p>
+                </section>
+
+                <section class="panel">
+                    <div class="panel-heading">
+                        <div>
+                            <h3>Storage Pipeline</h3>
+                            <p class="unit-label">Captured to stored reconciliation</p>
+                        </div>
+                    </div>
+                    <dl class="counters" id="pipelineCounters">
+                        <div><dt>Captured</dt><dd id="pipeCaptured">--</dd></div>
+                        <div><dt>Processed</dt><dd id="pipeProcessed">--</dd></div>
+                        <div><dt>Stored</dt><dd id="pipeStored">--</dd></div>
+                        <div><dt>Queued</dt><dd id="pipeQueued">--</dd></div>
+                        <div><dt>Dropped</dt><dd id="pipeDropped">--</dd></div>
+                        <div><dt>Failed</dt><dd id="pipeFailed">--</dd></div>
+                        <div><dt>Connection errors</dt><dd id="pipeConnErrors">--</dd></div>
+                        <div><dt>Dead-letter records</dt><dd id="pipeDeadLetter">--</dd></div>
+                    </dl>
+                </section>
+            </div>
+
+            <section class="panel packet-panel">
                 <div class="panel-heading">
                     <div>
-                        <h3>Traffic Throughput</h3>
-                        <p>Upload and download rates</p>
+                        <h3>Recent Packets</h3>
+                        <p class="unit-label">Newest rows from the database</p>
                     </div>
-                    <span class="unit-label">Bytes / second</span>
+                    <a class="link" href="#packets">Open explorer →</a>
                 </div>
-                <div class="chart-container">
-                    <canvas id="trafficChart"></canvas>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Time</th><th>Source</th><th>Destination</th>
+                                <th>Protocol</th><th>App</th><th>Size</th>
+                                <th>Direction</th><th>Interface</th>
+                            </tr>
+                        </thead>
+                        <tbody id="recentPacketsBody"></tbody>
+                    </table>
                 </div>
-            </article>
+                <p class="empty-state" id="recentPacketsEmpty" hidden>No packets stored yet.</p>
+                <p class="error-state" id="recentPacketsError" hidden></p>
+            </section>
+        </section>
 
-            <article class="panel">
+        <!-- ============================ TRAFFIC ============================ -->
+        <section class="page" id="page-traffic">
+            <div class="stats-grid compact">
+                <article class="stat-card"><span>Upload</span><h2 id="trafficUpload">--</h2><small>bytes in</small></article>
+                <article class="stat-card"><span>Download</span><h2 id="trafficDownload">--</h2><small>bytes out</small></article>
+                <article class="stat-card"><span>Average packet</span><h2 id="trafficAvg">--</h2><small>bytes</small></article>
+                <article class="stat-card"><span>Packets / second</span><h2 id="trafficPps">--</h2><small>rolling</small></article>
+            </div>
+
+            <section class="panel">
                 <div class="panel-heading">
                     <div>
-                        <h3>Network Protocols</h3>
-                        <p>Captured packet distribution</p>
+                        <h3>Directional Throughput</h3>
+                        <p class="unit-label">Upload and download bytes per second</p>
+                    </div>
+                    <span id="trafficDetailSource" class="badge">--</span>
+                </div>
+                <div class="chart-container tall" id="trafficChartLargeWrap">
+                    <canvas id="trafficChartLarge"></canvas>
+                </div>
+                <p class="empty-state" id="trafficLargeEmpty" hidden>
+                    Start a capture to collect throughput samples.
+                </p>
+            </section>
+
+            <div class="charts-grid">
+                <section class="panel">
+                    <div class="panel-heading"><h3>Direction Totals</h3></div>
+                    <div class="table-wrapper">
+                        <table>
+                            <thead><tr><th>Direction</th><th>Packets</th><th>Bytes</th></tr></thead>
+                            <tbody id="directionBody"></tbody>
+                        </table>
+                    </div>
+                    <p class="empty-state" id="directionEmpty" hidden>No direction data.</p>
+                </section>
+
+                <section class="panel">
+                    <div class="panel-heading"><h3>Top Talkers</h3></div>
+                    <div class="table-wrapper">
+                        <table>
+                            <thead><tr><th>Host</th><th>Packets</th><th>Bytes</th></tr></thead>
+                            <tbody id="topTalkersTrafficBody"></tbody>
+                        </table>
+                    </div>
+                    <p class="empty-state" id="talkersTrafficEmpty" hidden>No traffic recorded yet.</p>
+                </section>
+            </div>
+        </section>
+
+        <!-- ========================= PACKET EXPLORER ======================== -->
+        <section class="page" id="page-packets">
+            <section class="panel">
+                <div class="toolbar">
+                    <label class="field grow">
+                        <span>Search</span>
+                        <input id="packetSearch" type="search" placeholder="IP, protocol, MAC…" autocomplete="off">
+                    </label>
+                    <label class="field">
+                        <span>Protocol</span>
+                        <select id="packetProtocol">
+                            <option value="">All transport</option>
+                            <option value="TCP">TCP</option>
+                            <option value="UDP">UDP</option>
+                            <option value="ICMP">ICMP</option>
+                            <option value="ICMPv6">ICMPv6</option>
+                            <option value="OTHER">Other</option>
+                        </select>
+                    </label>
+                    <label class="field">
+                        <span>Application</span>
+                        <select id="packetApplication">
+                            <option value="">All application</option>
+                            <option value="DNS">DNS</option>
+                            <option value="HTTP">HTTP</option>
+                            <option value="HTTPS/TLS">HTTPS/TLS</option>
+                            <option value="OTHER">Other</option>
+                        </select>
+                    </label>
+                    <label class="field">
+                        <span>Direction</span>
+                        <select id="packetDirection">
+                            <option value="">All</option>
+                            <option value="incoming">Incoming</option>
+                            <option value="outgoing">Outgoing</option>
+                            <option value="local">Local</option>
+                            <option value="other">Other</option>
+                        </select>
+                    </label>
+                    <label class="field">
+                        <span>Sort</span>
+                        <select id="packetSort">
+                            <option value="id">Newest</option>
+                            <option value="timestamp">Timestamp</option>
+                            <option value="packet_size">Size</option>
+                            <option value="protocol">Protocol</option>
+                            <option value="source_ip">Source IP</option>
+                            <option value="destination_ip">Destination IP</option>
+                        </select>
+                    </label>
+                    <label class="field">
+                        <span>Order</span>
+                        <select id="packetOrder">
+                            <option value="desc">Descending</option>
+                            <option value="asc">Ascending</option>
+                        </select>
+                    </label>
+                    <label class="field">
+                        <span>Rows</span>
+                        <select id="packetPageSize">
+                            <option value="25">25</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                        </select>
+                    </label>
+                    <button id="packetRefresh" class="secondary-btn" type="button">Refresh</button>
+                </div>
+
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID</th><th>Time</th><th>Source</th><th>Destination</th>
+                                <th>Proto</th><th>App</th><th>Size</th><th>Direction</th>
+                                <th>Interface</th><th>MAC</th>
+                            </tr>
+                        </thead>
+                        <tbody id="packetTableBody"></tbody>
+                    </table>
+                </div>
+                <p class="empty-state" id="packetEmpty" hidden>No packets match these filters.</p>
+                <p class="error-state" id="packetError" hidden></p>
+
+                <div class="pagination">
+                    <span id="packetRange" class="muted">--</span>
+                    <div class="pagination-controls">
+                        <button id="packetPrev" class="secondary-btn" type="button">Previous</button>
+                        <span id="packetPageLabel" class="muted">Page 1</span>
+                        <button id="packetNext" class="secondary-btn" type="button">Next</button>
                     </div>
                 </div>
-                <div class="chart-container">
-                    <canvas id="protocolChart"></canvas>
-                </div>
-            </article>
+            </section>
         </section>
 
-        <section id="packets" class="panel packet-panel">
-            <div class="panel-heading">
-                <div>
-                    <h3>Recent Packets</h3>
-                    <p>Latest records stored in the database</p>
+        <!-- ========================== CONNECTIONS ========================== -->
+        <section class="page" id="page-connections">
+            <section class="panel">
+                <div class="toolbar">
+                    <label class="field grow">
+                        <span>Search</span>
+                        <input id="connectionSearch" type="search" placeholder="Source or destination IP…" autocomplete="off">
+                    </label>
+                    <label class="field">
+                        <span>Protocol</span>
+                        <select id="connectionProtocol">
+                            <option value="">All</option>
+                            <option value="TCP">TCP</option>
+                            <option value="UDP">UDP</option>
+                            <option value="ICMP">ICMP</option>
+                            <option value="ICMPv6">ICMPv6</option>
+                            <option value="OTHER">Other</option>
+                        </select>
+                    </label>
+                    <label class="field">
+                        <span>State</span>
+                        <select id="connectionState">
+                            <option value="">All</option>
+                            <option value="ESTABLISHED">Established</option>
+                            <option value="OPEN">Open</option>
+                            <option value="CLOSED">Closed</option>
+                        </select>
+                    </label>
+                    <button id="connectionRefresh" class="secondary-btn" type="button">Refresh</button>
                 </div>
-                <button id="refreshPackets" class="secondary-btn">Refresh</button>
-            </div>
 
-            <div class="table-wrapper">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>Timestamp</th>
-                            <th>Source</th>
-                            <th>Destination</th>
-                            <th>Protocol</th>
-                            <th>Application</th>
-                            <th>Size</th>
-                            <th>Direction</th>
-                        </tr>
-                    </thead>
-                    <tbody id="packetTable">
-                        <tr>
-                            <td colspan="8" class="empty-state">
-                                No packet records loaded.
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Source</th><th>Destination</th><th>Proto</th>
+                                <th>State</th><th>Packets</th><th>Bytes</th>
+                                <th>First seen</th><th>Last seen</th>
+                            </tr>
+                        </thead>
+                        <tbody id="connectionTableBody"></tbody>
+                    </table>
+                </div>
+                <p class="empty-state" id="connectionEmpty" hidden>No connections tracked yet.</p>
+                <p class="error-state" id="connectionError" hidden></p>
+
+                <div class="pagination">
+                    <span id="connectionRange" class="muted">--</span>
+                    <div class="pagination-controls">
+                        <button id="connectionPrev" class="secondary-btn" type="button">Previous</button>
+                        <span id="connectionPageLabel" class="muted">Page 1</span>
+                        <button id="connectionNext" class="secondary-btn" type="button">Next</button>
+                    </div>
+                </div>
+            </section>
         </section>
 
-        <section id="network" class="panel network-panel">
-            <div class="panel-heading">
-                <div>
-                    <h3>Network Information</h3>
-                    <p>Default IPv4 gateway and local subnet</p>
+        <!-- =========================== PROTOCOLS =========================== -->
+        <section class="page" id="page-protocols">
+            <div class="stats-grid compact">
+                <article class="stat-card"><span>Total packets</span><h2 id="protocolTotal">--</h2><small>all stored rows</small></article>
+                <article class="stat-card"><span>Transport protocols</span><h2 id="protocolTransportCount">--</h2><small>distinct</small></article>
+                <article class="stat-card"><span>Application protocols</span><h2 id="protocolApplicationCount">--</h2><small>distinct</small></article>
+            </div>
+
+            <div class="charts-grid">
+                <section class="panel">
+                    <div class="panel-heading"><h3>Transport Protocols</h3></div>
+                    <div class="table-wrapper">
+                        <table>
+                            <thead><tr><th>Protocol</th><th>Packets</th><th>Bytes</th><th>Share</th></tr></thead>
+                            <tbody id="protocolTransportBody"></tbody>
+                        </table>
+                    </div>
+                    <p class="empty-state" id="protocolTransportEmpty" hidden>No protocol data.</p>
+                </section>
+
+                <section class="panel">
+                    <div class="panel-heading"><h3>Application Protocols</h3></div>
+                    <div class="table-wrapper">
+                        <table>
+                            <thead><tr><th>Protocol</th><th>Packets</th><th>Bytes</th><th>Share</th></tr></thead>
+                            <tbody id="protocolApplicationBody"></tbody>
+                        </table>
+                    </div>
+                    <p class="empty-state" id="protocolApplicationEmpty" hidden>No application protocol data.</p>
+                </section>
+            </div>
+            <p class="error-state" id="protocolError" hidden></p>
+        </section>
+
+        <!-- =========================== INTERFACES ========================== -->
+        <section class="page" id="page-interfaces">
+            <section class="panel">
+                <div class="panel-heading">
+                    <div>
+                        <h3>Default Gateway</h3>
+                        <p class="unit-label">From the operating system routing table</p>
+                    </div>
                 </div>
-                <button id="scanDevices" class="secondary-btn">Scan Devices</button>
-            </div>
-            <div id="gatewayInfo" class="network-info">
-                Loading network information...
-            </div>
-            <div id="deviceInfo" class="network-info"></div>
+                <dl class="counters wide" id="gatewayInfo"></dl>
+                <p class="error-state" id="gatewayError" hidden></p>
+            </section>
+
+            <section class="panel">
+                <div class="panel-heading">
+                    <div>
+                        <h3>Network Interfaces</h3>
+                        <p class="unit-label">Capture-capable adapters reported by Scapy and psutil</p>
+                    </div>
+                    <button id="interfaceRefresh" class="secondary-btn" type="button">Rescan</button>
+                </div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Name</th><th>Description</th><th>IPv4</th>
+                                <th>MAC</th><th>Status</th><th>Capture name</th>
+                            </tr>
+                        </thead>
+                        <tbody id="interfacesBody"></tbody>
+                    </table>
+                </div>
+                <p class="empty-state" id="interfacesEmpty" hidden>No interfaces discovered.</p>
+                <p class="error-state" id="interfacesError" hidden></p>
+            </section>
+
+            <section class="panel">
+                <div class="panel-heading">
+                    <div>
+                        <h3>Local Devices</h3>
+                        <p class="unit-label">ARP scan of the local subnet</p>
+                    </div>
+                    <button id="scanDevices" class="secondary-btn" type="button">Scan subnet</button>
+                </div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead><tr><th>IP address</th><th>MAC address</th></tr></thead>
+                        <tbody id="devicesBody"></tbody>
+                    </table>
+                </div>
+                <p class="empty-state" id="devicesEmpty" hidden>No devices scanned yet.</p>
+                <p class="error-state" id="devicesError" hidden></p>
+            </section>
+        </section>
+
+        <!-- ============================ HISTORY ============================ -->
+        <section class="page" id="page-history">
+            <section class="panel">
+                <div class="panel-heading">
+                    <div>
+                        <h3>Persisted Snapshots</h3>
+                        <p class="unit-label">Written every few seconds while capture runs</p>
+                    </div>
+                    <button id="historyRefresh" class="secondary-btn" type="button">Refresh</button>
+                </div>
+                <div class="chart-container" id="historyChartWrap">
+                    <canvas id="historyChart"></canvas>
+                </div>
+                <p class="empty-state" id="historyChartEmpty" hidden>
+                    No snapshots stored yet. Start a capture for a few seconds.
+                </p>
+            </section>
+
+            <section class="panel">
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Time</th><th>Total packets</th><th>Total bytes</th>
+                                <th>Upload</th><th>Download</th><th>Packets / s</th>
+                            </tr>
+                        </thead>
+                        <tbody id="historyBody"></tbody>
+                    </table>
+                </div>
+                <p class="empty-state" id="historyEmpty" hidden>No snapshots available.</p>
+                <p class="error-state" id="historyError" hidden></p>
+            </section>
         </section>
 
         <footer>
-            NetScope · Local network monitoring · Packet payloads are not stored
+            NetScope · FastAPI + Scapy + SQLite · metadata only, no packet payloads
         </footer>
     </main>
-
-    <script src="app.js"></script>
 </body>
 </html>
