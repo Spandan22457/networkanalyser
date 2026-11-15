@@ -16,6 +16,8 @@ venv/
 
 # Local databases
 *.db
+*.db.*
+*.db-*
 *.sqlite
 *.sqlite3
 

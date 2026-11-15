@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import socket
 
 import psutil
-from scapy.all import IP, IPv6, TCP, UDP, ICMP
+from scapy.all import Ether, IP, IPv6, TCP, UDP, ICMP
 
 from .protocol_classifier import ProtocolClassifier
 
@@ -83,9 +83,12 @@ class PacketProcessor:
 
         return ("OTHER", None, None, None)
 
-    def process(self, packet):
+    def process(self, packet, interface=None):
         """
         Extract packet metadata and classify its application protocol.
+
+        ``interface`` is the capture interface the packet arrived on; it is
+        optional so existing callers keep working.
 
         Returns a dictionary or None.
         Packet payload is never stored.
@@ -106,6 +109,15 @@ class PacketProcessor:
 
             source_ip = ip_layer.src
             destination_ip = ip_layer.dst
+
+            # Link-layer addresses, when the capture includes Ethernet.
+            # Loopback and some tunnel adapters have no Ether layer.
+            source_mac = None
+            destination_mac = None
+
+            if Ether in packet:
+                source_mac = str(packet[Ether].src)
+                destination_mac = str(packet[Ether].dst)
 
             # Extract transport protocol information.
             (
@@ -137,6 +149,8 @@ class PacketProcessor:
                 "timestamp": timestamp,
                 "source_ip": source_ip,
                 "destination_ip": destination_ip,
+                "source_mac": source_mac,
+                "destination_mac": destination_mac,
                 "source_port": source_port,
                 "destination_port": destination_port,
                 "protocol": protocol,
@@ -144,7 +158,8 @@ class PacketProcessor:
                 "packet_size": len(packet),
                 "tcp_flags": tcp_flags,
                 "direction": direction,
-                "ip_version": ip_version
+                "ip_version": ip_version,
+                "interface": interface
             }
 
         except Exception as exc:

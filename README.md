@@ -47,11 +47,38 @@ few seconds, which removes the remaining visual blink.
 ```powershell
 python -m venv venv
 .\venv\Scripts\Activate.ps1
-pip install fastapi uvicorn[standard] sqlalchemy scapy psutil pydantic
+pip install -r requirements.txt
 ```
 
 Packet capture needs [Npcap](https://npcap.com/#download) installed with the default
 "WinPcap API-compatible mode" option.
+
+## Database and migrations
+
+The SQLite file location is resolved once, from an absolute path, in
+`monitor/core/config.py`. Override it with the `NETSCOPE_DATABASE_PATH` environment
+variable (or a `.env` file); every process and every Alembic command then uses the
+same file regardless of the current working directory.
+
+```powershell
+# Apply schema changes to an existing database
+python -m alembic upgrade head
+
+# Confirm the models and the database agree
+python -m alembic check
+```
+
+Existing databases created before migrations were introduced must be marked as
+already containing the baseline table, then upgraded:
+
+```powershell
+python -m alembic stamp 0001_baseline
+python -m alembic upgrade head
+```
+
+Tables: `packets` (metadata only, no payloads), `network_statistics` (periodic
+snapshots), `connections` (tracked 5-tuples). The migration adds columns with
+`ADD COLUMN` and never rewrites existing packet rows.
 
 ## API overview
 

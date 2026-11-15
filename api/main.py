@@ -6,9 +6,9 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
 from sqlalchemy import or_, text
 
+from api.schemas import StartCaptureRequest
 from monitor.capture.capture_manager import CaptureManager
 from monitor.discovery.interface_discovery import InterfaceDiscovery
 from monitor.discovery.gateway_discovery import GatewayDiscovery
@@ -44,10 +44,6 @@ app.add_middleware(
 # Shared capture manager.
 capture_manager = None
 capture_lock = threading.Lock()
-
-
-class StartCaptureRequest(BaseModel):
-    interface: str
 
 
 @app.on_event("startup")

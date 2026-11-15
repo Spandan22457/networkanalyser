@@ -48,7 +48,10 @@ class CaptureManager:
         """Process one raw packet received from Scapy."""
 
         try:
-            packet_data = self.packet_processor.process(raw_packet)
+            packet_data = self.packet_processor.process(
+                raw_packet,
+                interface=self.interface
+            )
 
             if packet_data is None:
                 return

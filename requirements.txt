@@ -1,0 +1,16 @@
+# Runtime dependencies for the Mini Network Analyzer.
+# Versions reflect the environment this project was verified against.
+
+fastapi==0.162.5
+uvicorn==0.54.0
+sqlalchemy==2.1.8
+alembic==1.20.1
+pydantic==2.14.3
+pydantic-settings==2.16.2
+scapy==2.8.0
+psutil==7.2.2
+websockets==17.4
+
+# Testing
+pytest==9.2.0
+httpx==0.28.1
